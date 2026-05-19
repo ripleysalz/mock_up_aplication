@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulasi Fisika Elektromagnetik Terpadu</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #121212; 
+            color: white; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex;
+        }
+        
+        /* Panel Kiri (Sidebar) */
+        #sidebar {
+            width: 260px;
+            height: 100vh;
+            background: #1e1e1e;
+            border-right: 2px solid #333;
+            box-sizing: border-box;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 10;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+        }
+
+        h3 { 
+            margin: 0 0 5px 0; 
+            font-size: 15px; 
+            border-bottom: 1px solid #444; 
+            padding-bottom: 5px;
+            color: #ffaa00;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .section { margin-bottom: 10px; }
+        
+        label {
+            display: flex; align-items: center; cursor: pointer;
+            font-size: 14px; margin-bottom: 10px; color: #ccc;
+            user-select: none;
+        }
+        label input { margin-right: 10px; cursor: pointer; width: 16px; height: 16px; }
+        label:hover { color: #fff; }
+
+        button {
+            background-color: #2a2a2a; color: white; border: 1px solid #444;
+            padding: 12px; border-radius: 6px; cursor: pointer;
+            transition: all 0.2s ease; font-weight: bold; width: 100%; margin-bottom: 10px;
+            font-size: 13px;
+        }
+        button:hover { background-color: #444; border-color: #666; }
+        .btn-pos { border-left: 5px solid #ff4444; }
+        .btn-pos:hover { background-color: #2b1b1b; }
+        .btn-neg { border-left: 5px solid #4488ff; }
+        .btn-neg:hover { background-color: #1b232b; }
+        .btn-clear { border-left: 5px solid #e0a000; margin-top: 5px; }
+        .btn-clear:hover { background-color: #2b251b; }
+
+        /* Area Canvas */
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            height: 100vh;
+        }
+        canvas { display: block; }
+        
+        .probe-info { font-size: 11px; color: #888; font-style: italic; line-height: 1.3; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="section">
+            <h3>Visualisasi Layar</h3>
+            <label><input type="checkbox" id="chkVector" checked onchange="draw()"> Vector Field (E)</label>
+            <label><input type="checkbox" id="chkCoulomb" checked onchange="draw()"> Gaya Coulomb</label>
+            <label><input type="checkbox" id="chkPotential" onchange="draw()"> Potential (V)</label>
+        </div>
+
+        <div class="section">
+            <h3>Probe (Sensor Kursor)</h3>
+            <label><input type="checkbox" id="chkProbeE" checked onchange="draw()"> 1) Electric Field (E)</label>
+            <label><input type="checkbox" id="chkProbeV" checked onchange="draw()"> 2) Potential (V)</label>
+            <div class="probe-info">*Arahkan mouse ke area kosong canvas untuk meninjau nilai fisikanya.</div>
+        </div>
+
+        <div class="section" style="margin-top: auto;">
+            <h3>Kontrol Muatan</h3>
+            <button class="btn-pos" onclick="addCharge(5)">+ Tambah Muatan Positif</button>
+            <button class="btn-neg" onclick="addCharge(-5)">- Tambah Muatan Negatif</button>
+            <button class="btn-clear" onclick="clearCharges()">Bersihkan</button>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="simCanvas"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvas-container');
+    
+    // Konstanta Fisika Skala Simulasi
+    const k_field = 1000; 
+    const k_force = 50000; 
+    const k_potential = 3000;
+
+    function resize() {
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        draw();
+    }
+    window.addEventListener('resize', resize);
+
+    // State Muatan Awal (1 Positif, 1 Negatif)
+    let charges = [
+        { x: 250, y: 300, q: 5, radius: 15 },
+        { x: 550, y: 300, q: -5, radius: 15 }
+    ];
+
+    // Interaksi Mouse
+    let isDragging = false;
+    let draggedCharge = null;
+    let mouseX = -100;
+    let mouseY = -100;
+
+    canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        for (let i = charges.length - 1; i >= 0; i--) {
+            const c = charges[i];
+            if (Math.hypot(mx - c.x, my - c.y) <= c.radius + 10) {
+                isDragging = true;
+                draggedCharge = c;
+                break;
+            }
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+        mouseY = e.clientY - rect.top;
+
+        if (isDragging && draggedCharge) {
+            draggedCharge.x = mouseX;
+            draggedCharge.y = mouseY;
+        }
+        draw(); 
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+        draggedCharge = null;
+        draw();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        mouseX = -100; 
+        mouseY = -100;
+        draw();
+    });
+
+    // Fungsi Kontrol Muatan
+    function addCharge(qValue) {
+        charges.push({
+            x: canvas.width / 2 + (Math.random() * 120 - 60),
+            y: canvas.height / 2 + (Math.random() * 120 - 60),
+            q: qValue,
+            radius: 15
+        });
+        draw();
+    }
+
+    function clearCharges() {
+        charges = [];
+        draw();
+    }
+
+    // Menggambar Panah Medan Vektor (E)
+    function drawFieldArrow(x, y, ex, ey, magnitude) {
+        const len = 16; 
+        const angle = Math.atan2(ey, ex);
+        let logMag = Math.log10(magnitude * 400 + 1);
+        let normalizedMag = Math.min(1, logMag / 3.5); 
+        
+        let hue = (1 - normalizedMag) * 240; 
+        let opacity = Math.min(1, 0.1 + normalizedMag); 
+        
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${opacity})`;
+        ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${opacity})`;
+        ctx.lineWidth = 1.5;
+
+        ctx.beginPath();
+        ctx.moveTo(x - Math.cos(angle) * len/2, y - Math.sin(angle) * len/2);
+        ctx.lineTo(x + Math.cos(angle) * len/2, y + Math.sin(angle) * len/2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(angle) * len/2, y + Math.sin(angle) * len/2);
+        ctx.lineTo(x + Math.cos(angle) * len/2 - 5 * Math.cos(angle - Math.PI/6), y + Math.sin(angle) * len/2 - 5 * Math.sin(angle - Math.PI/6));
+        ctx.lineTo(x + Math.cos(angle) * len/2 - 5 * Math.cos(angle + Math.PI/6), y + Math.sin(angle) * len/2 - 5 * Math.sin(angle + Math.PI/6));
+        ctx.fill();
+    }
+
+    // Menggambar Panah Gaya Coulomb (F)
+    function drawForceArrow(x, y, fx, fy) {
+        const magnitude = Math.hypot(fx, fy);
+        if (magnitude < 0.1) return;
+
+        const angle = Math.atan2(fy, fx);
+        const visualLen = Math.min(150, Math.log10(magnitude + 1) * 30); 
+
+        ctx.strokeStyle = '#FFD700'; 
+        ctx.fillStyle = '#FFD700';
+        ctx.lineWidth = 4;
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(angle) * visualLen, y + Math.sin(angle) * visualLen);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(angle) * visualLen, y + Math.sin(angle) * visualLen);
+        ctx.lineTo(x + Math.cos(angle) * visualLen - 12 * Math.cos(angle - Math.PI/7), y + Math.sin(angle) * visualLen - 12 * Math.sin(angle - Math.PI/7));
+        ctx.lineTo(x + Math.cos(angle) * visualLen - 12 * Math.cos(angle + Math.PI/7), y + Math.sin(angle) * visualLen - 12 * Math.sin(angle + Math.PI/7));
+        ctx.fill();
+    }
+
+    // Engine Render Utama
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const showVector = document.getElementById('chkVector').checked;
+        const showCoulomb = document.getElementById('chkCoulomb').checked;
+        const showPotential = document.getElementById('chkPotential').checked;
+        const probeE = document.getElementById('chkProbeE').checked;
+        const probeV = document.getElementById('chkProbeV').checked;
+
+        // 1. Gambar Potensial Listrik (Scalar Field / Peta Warna)
+        if (showPotential) {
+            const pSpacing = 6; 
+            for (let x = 0; x < canvas.width; x += pSpacing) {
+                for (let y = 0; y < canvas.height; y += pSpacing) {
+                    let V = 0;
+                    for (let c of charges) {
+                        let r = Math.hypot(x - c.x, y - c.y);
+                        if (r > 2) V += (k_potential * c.q) / r;
+                    }
+                    
+                    if (Math.abs(V) > 0.05) { 
+                        let opacity = Math.min(0.75, Math.abs(V) / 400); 
+                        if (V > 0) ctx.fillStyle = `rgba(255, 68, 68, ${opacity})`; 
+                        else ctx.fillStyle = `rgba(68, 136, 255, ${opacity})`; 
+                        
+                        ctx.fillRect(x, y, pSpacing, pSpacing);
+                    }
+                }
+            }
+        }
+
+        // 2. Gambar Vector Field (Medan Listrik Grid)
+        if (showVector) {
+            const spacing = 35;
+            for (let x = spacing/2; x < canvas.width; x += spacing) {
+                for (let y = spacing/2; y < canvas.height; y += spacing) {
+                    let ex = 0, ey = 0;
+                    for (let c of charges) {
+                        let dx = x - c.x, dy = y - c.y;
+                        let r2 = dx*dx + dy*dy;
+                        if (r2 > 50) { 
+                            let r = Math.sqrt(r2);
+                            let eMag = (k_field * c.q) / r2;
+                            ex += eMag * (dx / r);
+                            ey += eMag * (dy / r);
+                        }
+                    }
+                    let totalMag = Math.hypot(ex, ey);
+                    if (totalMag > 0.005) drawFieldArrow(x, y, ex, ey, totalMag);
+                }
+            }
+        }
+
+        // 3. Hitung Gaya Coulomb Antar Muatan
+        let forces = [];
+        for (let i = 0; i < charges.length; i++) {
+            let fx = 0, fy = 0;
+            for (let j = 0; j < charges.length; j++) {
+                if (i !== j) {
+                    let dx = charges[i].x - charges[j].x;
+                    let dy = charges[i].y - charges[j].y;
+                    let r2 = dx*dx + dy*dy;
+                    if (r2 > 200) { 
+                        let r = Math.sqrt(r2);
+                        let fMag = (k_force * charges[i].q * charges[j].q) / r2; 
+                        fx += fMag * (dx / r);
+                        fy += fMag * (dy / r);
+                    }
+                }
+            }
+            forces.push({ x: fx, y: fy });
+        }
+
+        // 4. Gambar Muatan Fisik & Vektor Gaya Coulomb
+        for (let i = 0; i < charges.length; i++) {
+            let c = charges[i];
+            if (showCoulomb) drawForceArrow(c.x, c.y, forces[i].x, forces[i].y);
+
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+            ctx.fillStyle = c.q > 0 ? '#ff4444' : '#4488ff';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.fillStyle = 'white';
+            ctx.font = '20px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(c.q > 0 ? '+' : '-', c.x, c.y + 2);
+        }
+
+        // 5. Probe Dinamis (Sensor Pembaca Nilai di Kursor)
+        if (!isDragging && mouseX > 0 && mouseY > 0 && (probeE || probeV)) {
+            let overCharge = false;
+            for (let c of charges) {
+                if (Math.hypot(mouseX - c.x, mouseY - c.y) <= c.radius) {
+                    overCharge = true; break;
+                }
+            }
+
+            if (!overCharge) {
+                let pEx = 0, pEy = 0, pV = 0;
+                for(let c of charges) {
+                    let dx = mouseX - c.x;
+                    let dy = mouseY - c.y;
+                    let r = Math.hypot(dx, dy);
+                    if(r > 1) {
+                        let eMag = (k_field * c.q) / (r*r);
+                        pEx += eMag * (dx/r);
+                        pEy += eMag * (dy/r);
+                        pV += (k_potential * c.q) / r; 
+                    }
+                }
+                
+                let pEmag = Math.hypot(pEx, pEy);
+                let probeLines = [];
+                
+                if (probeE) {
+                    // FIX: Balik arah pEy (-pEy) agar menyesuaikan dengan koordinat Kartesian Fisika standar (Bawah = Negatif)
+                    let physicsEy = -pEy;
+
+                    let displayE = pEmag < 1 ? pEmag.toFixed(4) : pEmag.toFixed(1);
+                    let displayEx = Math.abs(pEx) < 1 ? pEx.toFixed(3) : pEx.toFixed(1);
+                    let displayEy = Math.abs(physicsEy) < 1 ? physicsEy.toFixed(3) : physicsEy.toFixed(1);
+                    
+                    let ySign = physicsEy >= 0 ? '+' : ''; 
+
+                    probeLines.push(`|E|: ${displayE} N/C`);
+                    probeLines.push(`E : ${displayEx}x̂ ${ySign}${displayEy}ŷ`);
+                }
+                
+                if (probeV) {
+                    let displayV = Math.abs(pV) < 1 ? pV.toFixed(4) : pV.toFixed(1);
+                    let vSign = pV > 0 ? '+' : '';
+                    probeLines.push(`V : ${vSign}${displayV} Volt`);
+                }
+
+                // Gambar Target Probe (Lingkaran Hijau Kecil)
+                ctx.beginPath();
+                ctx.arc(mouseX, mouseY, 4, 0, Math.PI*2);
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Latar Belakang Kotak Informasi
+                const lineHeight = 18;
+                const boxHeight = probeLines.length * lineHeight + 12;
+                const boxWidth = 210; 
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(mouseX + 12, mouseY - 40, boxWidth, boxHeight);
+                ctx.strokeStyle = '#555';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(mouseX + 12, mouseY - 40, boxWidth, boxHeight);
+
+                // Menggambar Semua Baris Teks
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '13px monospace';
+                ctx.textAlign = 'left';
+                
+                let currentTextY = mouseY - 40 + 18;
+                for (let i = 0; i < probeLines.length; i++) {
+                    ctx.fillText(probeLines[i], mouseX + 18, currentTextY);
+                    currentTextY += lineHeight;
+                }
+            }
+        }
+    }
+
+    setTimeout(resize, 100);
+</script>
+</body>
+</html>
